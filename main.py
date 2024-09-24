@@ -24,9 +24,44 @@ scaler_list = []
 sfc_update_flag = True
 
 def get_containers_info() -> list:
-    request = requests.get(f"{config['docker']['base_url']}/containers")
-    return request.json()['containers']
+    # request = requests.get(f"{config['docker']['base_url']}/containers")
+    # return request.json()['containers']
+    return [
+      {
+        "cpu_percent": 0.44,
+        "id": "98d9ad729bd0",
+        "mem_limit_gb": 3.76,
+        "mem_percent": 8.34,
+        "mem_usage_mb": 321.02,
+        "name": "ml.2.ovevrp3"
+      },
+      {
+        "cpu_percent": 0.59,
+        "id": "03626f8424fe",
+        "mem_limit_gb": 3.76,
+        "mem_percent": 8.32,
+        "mem_usage_mb": 320.57,
+        "name": "ml.1.tjg5uvc"
+      }
+    ]
 
+def calculate_docker_info(containers_info):
+  cpu_percent = 0
+  mem_percent = 0
+  for container in containers_info:
+    cpu_percent += float(container['cpu_percent'])
+    mem_percent += float(container['mem_percent'])
+  return {
+    'instance_num': len(containers_info),
+    'cpu_percent': cpu_percent/len(containers_info),
+    'mem_percent': mem_percent/len(containers_info),
+  }
+
+def get_pre_processing_state(docker_info):
+    state = []
+    state.append(docker_info["cpu_percent"])
+    state.append(docker_info["mem_percent"])
+    return np.array(state)
 
 # dqn-threshold(scaler): doing auto-scaling based on dqn
 # Input: scaler
@@ -36,6 +71,7 @@ def dqn_scaling(scaler: AutoScaler):
   # Initial Processing
   start_time = dt.datetime.now() #+ dt.timedelta(hours = 24)
   containers_info = get_containers_info()
+  docker_info = calculate_docker_info(containers_info)
   epsilon_value = epsilon
 
   # flavors = ni_mon_api.get_vnf_flavors()
@@ -43,7 +79,7 @@ def dqn_scaling(scaler: AutoScaler):
   #del instance_types[0] # Flow classifier instance deletion
 
   # Q-networks
-  num_states = 5 # Number of states
+  num_states = 2 # Number of states
   num_actions = 3 # Scale-out, Maintain, Scale-In
 
   q = Qnet(num_states, num_actions, num_neurons)
@@ -77,8 +113,8 @@ def dqn_scaling(scaler: AutoScaler):
 
   while scaler.get_active_flag():
     # Get state and select action
-    s = 0 # TODO: get state from container
-    decision = q.sample_action(torch.from_numpy(s).float(), epsilon_value)
+    state = get_pre_processing_state(docker_info)
+    decision = q.sample_action(torch.from_numpy(state).float(), epsilon_value)
     a = decision["action"]
     decision_type = "Policy" if decision["type"] else "R"
 
@@ -100,7 +136,7 @@ def dqn_scaling(scaler: AutoScaler):
     # Scaling in or out
     print("Epsilon value : ", epsilon_value)
     if scaling_flag != 0:
-      num_instances = 5 # TODO: get current scale
+      num_instances = docker_info['instance_num']
 
       # Scaling-out
       if scaling_flag > 0:
