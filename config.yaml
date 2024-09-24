@@ -1,0 +1,5 @@
+instance:
+  max_number: 5
+  min_number: 1
+docker:
+  base_url: http://localhost:5000
