@@ -1,3 +1,4 @@
+import logging
 from torch_dqn import *
 from agent import *
 from scaling_model import *
@@ -22,6 +23,10 @@ max_apisode   = 1000            # Number of episode
 
 scaler_list = []
 sfc_update_flag = True
+
+OKGREEN = '\033[92m'
+ENDC = '\033[0m'
+logging.basicConfig(level=logging.INFO, format=f"{OKGREEN}%(levelname)s{ENDC} %(message)s")
 
 def get_containers_info() -> list:
     # request = requests.get(f"{config['docker']['base_url']}/containers")
@@ -63,6 +68,22 @@ def get_pre_processing_state(docker_info):
     state.append(docker_info["mem_percent"])
     return np.array(state)
 
+class ScalingPod():
+  In = 'in'
+  Out = 'out'
+
+def scale_pod(scale: ScalingPod):
+  request = requests.post(
+    url=f"{config['docker']['base_url']}/scale/{scale}",
+    json='',
+  )
+  if request.status_code == 200:
+    return True
+  else:
+    logging.error(f"scaling pod got: status code {request.status_code}")
+    logging.error(f"scaling pod got: {request.json()}")
+    raise request.json()
+
 # dqn-threshold(scaler): doing auto-scaling based on dqn
 # Input: scaler
 # Output: none
@@ -92,7 +113,7 @@ def dqn_scaling(scaler: AutoScaler):
     q_target.load_state_dict(torch.load("save_model/"+scaler.get_scaling_name()))
       
   else:
-    print("learning the data")
+    logging.info("learning from live data")
 
   optimizer = optim.Adam(q.parameters(), lr=learning_rate)
   n_epi = 0
@@ -108,8 +129,7 @@ def dqn_scaling(scaler: AutoScaler):
   
   if scaler.has_dataset == True:
     epsilon_value = 0.11
-    print("has dataset")
-      
+    logging.info("has dataset")
 
   while scaler.get_active_flag():
     # Get state and select action
@@ -122,28 +142,30 @@ def dqn_scaling(scaler: AutoScaler):
 
     # Check whether it is out or in or maintain
     if a == 0:
-        print("[%s] Scaling-out! by %s" % (scaler.get_scaling_name(), decision_type))
+        logging.info("[%s] Scaling-out! by %s" % (scaler.get_scaling_name(), decision_type))
         scaling_flag = 1
     elif a == 2:
-        print("[%s] Scaling-in! by %s" % (scaler.get_scaling_name(), decision_type))
+        logging.info("[%s] Scaling-in! by %s" % (scaler.get_scaling_name(), decision_type))
         scaling_flag = -1
     else:
-        print("[%s] Maintain! by %s" % (scaler.get_scaling_name(), decision_type))
+        logging.info("[%s] Maintain! by %s" % (scaler.get_scaling_name(), decision_type))
         scaling_flag = 0
 
     # For test!!
     # scaling_flag = 0
     # Scaling in or out
-    print("Epsilon value : ", epsilon_value)
+    logging.info(f"Epsilon value : {epsilon_value}")
     if scaling_flag != 0:
       num_instances = docker_info['instance_num']
+      logging.info(num_instances)
 
       # Scaling-out
       if scaling_flag > 0:
         # If possible to deploy new VNF instance
         if num_instances < config["instance"]["max_number"]:
           # scale - out command
-          pass
+          scale_pod(ScalingPod.Out)
+          logging.info('scaling OUT succeeded')
           # if success; done = True
 
       # Scaling-in
@@ -151,13 +173,15 @@ def dqn_scaling(scaler: AutoScaler):
         # If possible to remove VNF instance
         if num_instances > config["instance"]["min_number"]:
           # scale-in
-          pass
+          scale_pod(ScalingPod.In)
+          logging.info('scaling IN succeeded')
           # if success; done = True
 
       # Maintain
       else:
         done = True
-
+        
+    exit(1)
     
     # Prepare calculating rewards
     # if scaling_flag == 1 and type_name == "firewall":
