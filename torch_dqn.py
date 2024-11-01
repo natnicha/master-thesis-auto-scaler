@@ -102,15 +102,12 @@ class Qnet(nn.Module):
     def sample_action(self, obs, epsilon):
         out = self.forward(obs)
         coin = random.random()
-        policy = False
 
         # Regarding coin to select action randomly
         if coin < epsilon:
-            policy = False
-            return { "action": random.randrange(0,self.num_outputs), "type" : policy } # PARAMETER: RANDOM ACTION
+            return { "action": random.randrange(0,self.num_outputs), "by" : "Policy" } # PARAMETER: RANDOM ACTION
         else :
-            policy = True
-            return { "action": out.argmax().item(), "type": policy }
+            return { "action": out.argmax().item(), "by": "Random" }
 
     def save_model(self, path):
         torch.save(self.state_dict(), path)
@@ -118,7 +115,7 @@ class Qnet(nn.Module):
 
 # Update Target Q-network
 def train(q, q_target, memory, optimizer, gamma, batch_size):
-    for i in range(10):
+    for _ in range(10):
         s,a,r,s_prime,done_mask = memory.sample(batch_size)
 
         q_out = q(s)

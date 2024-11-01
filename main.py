@@ -1,4 +1,5 @@
 import logging
+import os
 from torch_dqn import *
 from agent import *
 from scaling_model import *
@@ -18,7 +19,7 @@ batch_size    = 16              # Batch size for mini-batch sampling
 num_neurons   = 128             # Number of neurons in each hidden layer
 epsilon       = 0.10            # epsilon value of e-greedy algorithm
 required_mem_size = 20          # Minimum number triggering sampling
-print_interval = 20             # Number of iteration to print result during DQN
+copy_param_interval = 20        # Number of iteration to copy parameters to target Q-network
 max_apisode   = 10              # Number of episode
 
 scaler_list = []
@@ -105,7 +106,7 @@ def dqn_scaling(scaler: AutoScaler):
   scaler.set_active_flag(True)
   
   # Epsilon_value setting
-  # epsilon_value = 0.5
+  epsilon_value = 0.5
   if scaler.has_dataset == True:
     epsilon_value = 0.11
     logging.info("has dataset")
@@ -119,19 +120,18 @@ def dqn_scaling(scaler: AutoScaler):
     logging.info(f"state (s): {state}")
     decision = q.sample_action(torch.from_numpy(state).float(), epsilon_value)
     a = decision["action"]
-    decision_type = "Policy" if decision["type"] else "R"
 
     done = False
 
     # Check whether it is out or in or maintain
     if a == 0:
-        logging.info("[%s] Scaling-out! by %s" % (scaler.get_scaling_name(), decision_type))
+        logging.info("[%s] Scaling-out! by %s" % (scaler.get_scaling_name(), decision["by"]))
         scaling_flag = 1
     elif a == 2:
-        logging.info("[%s] Scaling-in! by %s" % (scaler.get_scaling_name(), decision_type))
+        logging.info("[%s] Scaling-in! by %s" % (scaler.get_scaling_name(), decision["by"]))
         scaling_flag = -1
     else:
-        logging.info("[%s] Maintain! by %s" % (scaler.get_scaling_name(), decision_type))
+        logging.info("[%s] Maintain! by %s" % (scaler.get_scaling_name(), decision["by"]))
         scaling_flag = 0
 
     # For testing
@@ -180,11 +180,11 @@ def dqn_scaling(scaler: AutoScaler):
     if memory.size() > required_mem_size:
       train(q, q_target, memory, optimizer, gamma, batch_size)
 
-    if n_epi % print_interval==0 and n_epi != 0:
+    if n_epi % copy_param_interval==0 and n_epi != 0:
       print("[%s] Target network updated!" % (scaler.get_scaling_name()))
       q_target.load_state_dict(q.state_dict())
 
-    current_time = dt.datetime.now() #+ dt.timedelta(hours = 24)
+    current_time = dt.datetime.now()
 
     if scaler.get_duration() > 0 and (current_time-start_time).seconds > scaler.get_duration():
       scaler.set_active_flag(False)
