@@ -1,21 +1,18 @@
 import logging
 import math
 
-def reward_calculator(service_info, response_time):
-    alpha = 1.0 # weight1
-    beta =  1.0 # weight2
-    gamma = 1.5 # weight3
+def reward_calculator(service_stat):
+    w_resp = 0.33 # weight of response time
+    w_drop =  0.33 # weight of dropped packet percentage
+    w_instance = 0.33 # weight of a number of instance
+    
+    inst_count = len(service_stat['containers'])
+    logging.info(service_stat['requests_stat'])
+    logging.info(f"drop_packet_pct: {service_stat['requests_stat']['drop_packet_percentage']}  {math.log(1+service_stat['requests_stat']['drop_packet_percentage'], 2)}")
+    reward = -((w_resp*math.log(1+service_stat['requests_stat']['avg_latency']/1000.0, 2)+(w_drop*math.log(1+service_stat['requests_stat']['drop_packet_percentage'], 2))+(w_instance*math.log(inst_count, 2))))
 
-    response_time = response_time/1000.0
-    # TODO: find drops and total packets to find loss
-    # loss = service_info["drops"]/service_info["packets"] if service_info["packets"] != 0 else 1
-    # inst_count = service_info["size"]/(service_info["num_types"]*5)
-    loss = 0.01
-    inst_count = service_info['instance_num']
-
-    reward = -((alpha*math.log(1+response_time)+(beta*math.log(1+loss))+(gamma*math.log(1+inst_count))))
-
-    logging.info(f"reward value 1 : {alpha*math.log(1+response_time)}")
-    logging.info(f"reward value 2 : {beta*math.log(1+loss)}")
-    logging.info(f"reward value 3 : {gamma*math.log(1+inst_count)}")
+    logging.info(f"reward value 1 : {w_resp*math.log(1+service_stat['requests_stat']['avg_latency']/1000.0, 2)}")
+    logging.info(f"reward value 2 : {w_drop*math.log(1+service_stat['requests_stat']['drop_packet_percentage'], 2)}")
+    logging.info(f"reward value 3 : {w_instance*math.log(inst_count, 2)}")
+    logging.info(f"sum reward : {reward}")
     return reward

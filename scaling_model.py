@@ -85,7 +85,7 @@ class Threshold_ScalingInfo(Model):
 
 class DQN_ScalingInfo(Model):
 
-    def __init__(self, sfc_name: str=None, scaling_name: str=None, slo: float=None, interval: float=None, duration: float=None, has_dataset: bool=None):
+    def __init__(self, sfc_name: str=None, scaling_name: str=None, slo: float=None, interval: float=None, save_model_interval: int=None, duration: float=None, has_dataset: bool=None):
 
         self.swagger_types = {
             'sfc_name': str,
@@ -109,6 +109,7 @@ class DQN_ScalingInfo(Model):
         self._scaling_name = scaling_name
         self._slo = slo
         self._interval = interval
+        self._save_model_interval = save_model_interval
         self._duration = duration
         self._has_dataset = has_dataset
 
@@ -149,6 +150,14 @@ class DQN_ScalingInfo(Model):
         self._interval = interval
 
     @property
+    def save_model_interval(self) -> float:
+        return self._save_model_interval
+
+    @save_model_interval.setter
+    def save_model_interval(self, save_model_interval: float):
+        self._save_model_interval = save_model_interval
+
+    @property
     def duration(self) -> float:
         return self._duration
 
@@ -177,6 +186,7 @@ class AutoScaler():
         self.monitor_sfcr_id = ""
         self.monitor_src_id = ""
         self.monitor_dst_id =  ""
+        self.save_model_interval = 10
 
         if type == "threshold":
             self.threshold_in = scaling_info.threshold_in
@@ -247,6 +257,12 @@ class AutoScaler():
 
     def set_interval(self, interval):
         self.interval = interval
+
+    def get_save_model_interval(self):
+        return self.save_model_interval
+
+    def set_save_model_interval(self, save_model_interval):
+        self.save_model_interval = save_model_interval
 
     def get_duration(self):
         return self.duration

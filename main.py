@@ -5,7 +5,7 @@ from agent import *
 from scaling_model import *
 from config import config 
 
-import datetime as dt
+from datetime import datetime
 import time
 import torch.optim as optim
 import torch
@@ -20,7 +20,7 @@ num_neurons   = 128             # Number of neurons in each hidden layer
 epsilon       = 0.10            # epsilon value of e-greedy algorithm
 required_mem_size = 20          # Minimum number triggering sampling
 copy_param_interval = 20        # Number of iteration to copy parameters to target Q-network
-max_apisode   = 10              # Number of episode
+max_apisode   = 1000              # Number of episode
 
 scaler_list = []
 sfc_update_flag = True
@@ -31,8 +31,24 @@ ENDC = '\033[0m'
 logging.basicConfig(level=logging.INFO, format=f"{OKGREEN}%(levelname)s{ENDC} %(message)s")
 
 def get_containers_info() -> list:
-    request = requests.get(f"{config['docker']['base_url']}/containers")
+    URL = f"{config['docker']['base_url']}/containers"
+    try:
+      request = requests.get(URL)
+      if request.status_code != 200:
+        raise ValueError(f"connection error on {URL}")
+    except Exception as e:
+      raise e
     return request.json()['containers']
+
+def get_app_stat() -> dict:
+    URL = f"{config['docker']['base_url']}/app/stat"
+    try:
+      request = requests.get(URL)
+      if request.status_code != 200:
+        raise ValueError(f"connection error on {URL}")
+    except Exception as e:
+      raise e
+    return request.json()
 
 def calculate_service_info(containers_info):
   cpu_percent = 0
@@ -57,17 +73,21 @@ class ScalingPod():
   Out = 'out'
 
 def scale_pod(scale: ScalingPod):
-  request = requests.post(
-    url=f"{config['docker']['base_url']}/scale/{scale}",
-    json='',
-  )
-  logging.info(f"scaling pod got: status code {request.status_code}")
-  if request.status_code == 200:
-    return request.json()
-  else:
-    logging.error(f"scaling pod got: status code {request.status_code}")
-    logging.error(f"scaling pod got: {request.json()}")
-    raise request.json()
+  try:
+    request = requests.post(
+      url=f"{config['docker']['base_url']}/scale/{scale}",
+      json='',
+    )
+    logging.info(f"scaling pod got: status code {request.status_code}")
+    if request.status_code == 200:
+      return request.json()
+    else:
+      logging.error(f"scaling pod got: status code {request.status_code}")
+      logging.error(f"scaling pod got: {request.json()}")
+      raise request.json()
+  except Exception as e:
+    raise e
+
 
 # dqn-threshold(scaler): doing auto-scaling based on dqn
 # Input: scaler
@@ -134,14 +154,25 @@ def dqn_scaling(scaler: AutoScaler):
         logging.info("[%s] Maintain! by %s" % (scaler.get_scaling_name(), decision["by"]))
         scaling_flag = 0
 
+
     # For testing
     # scaling_flag = 0
     # Scaling in or out
     logging.info(f"Epsilon value : {epsilon_value}")
-    respond = {'time_spent_sec': 0.0}
+    respond =  {
+      'start_time': 0,
+      'finish_time': 0,
+      'time_spent_sec': 0.00
+    }
 
     num_instances = service_info['instance_num']
     logging.info(f"current instance: {num_instances}")
+
+    if scaling_flag != 0 and \
+      (num_instances+scaling_flag < config["instance"]["min_number"] or \
+      num_instances+scaling_flag > config["instance"]["max_number"]):
+      logging.info(f"continue due to a number of instance is out of bound")
+      continue
 
     if scaling_flag != 0 and \
       num_instances+scaling_flag >= config["instance"]["min_number"] and \
@@ -163,15 +194,14 @@ def dqn_scaling(scaler: AutoScaler):
     else:
       scaling_flag = 0
       done = True
-        
+
     # Prepare calculating rewards
     # Find s' (post state)
-    post_ontainers_info = get_containers_info()
-    post_service_info = calculate_service_info(post_ontainers_info)
+    app_stat = get_app_stat()
+    post_service_info = calculate_service_info(app_stat['containers'])
     s_prime = get_pre_processing_state(post_service_info)
     logging.info(f"post state(s'): {s_prime}")
-    response_time = respond['time_spent_sec']
-    r = reward_calculator(post_service_info, response_time)
+    r = reward_calculator(app_stat)
 
     done_mask = 1.0 if done else 0.0
     transition = (state,a,r,s_prime,done_mask)
@@ -181,7 +211,7 @@ def dqn_scaling(scaler: AutoScaler):
       train(q, q_target, memory, optimizer, gamma, batch_size)
 
     if n_epi % copy_param_interval==0 and n_epi != 0:
-      print("[%s] Target network updated!" % (scaler.get_scaling_name()))
+      logging.info("[%s] Target network updated!" % (scaler.get_scaling_name()))
       q_target.load_state_dict(q.state_dict())
 
     current_time = dt.datetime.now()
@@ -197,7 +227,11 @@ def dqn_scaling(scaler: AutoScaler):
       epsilon_value = epsilon_value - 0.01
     elif scaler.has_dataset == False:
       scaler.set_active_flag(False)
-        
+    
+    if n_epi % scaler.get_save_model_interval()==0 and n_epi != 0:
+      q.save_model("./save_model/"+scaler.get_scaling_name())
+      logging.info("[%s] model saved" % (scaler.get_scaling_name()))
+    
     time.sleep(scaler.get_interval())
 
   # Delete AutoScaler object
@@ -209,6 +243,7 @@ def dqn_scaling(scaler: AutoScaler):
     logging.info(f"[Exit: {scaler.get_scaling_name()}] DQN Scaling")
 
   q.save_model("./save_model/"+scaler.get_scaling_name())
+  logging.info("[%s] model saved" % (scaler.get_scaling_name()))
 
 
 if __name__ == '__main__':
@@ -219,7 +254,8 @@ if __name__ == '__main__':
         scaling_name='DQN',
         slo=None,
         duration=0,
-        interval=1
+        interval=0,
+        save_model_interval=20
     ), 
     type='dqn')
   )
