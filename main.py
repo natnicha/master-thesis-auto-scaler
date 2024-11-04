@@ -140,7 +140,6 @@ def dqn_scaling(scaler: AutoScaler):
     logging.info(f"state (s): {state}")
     decision = q.sample_action(torch.from_numpy(state).float(), epsilon_value)
     a = decision["action"]
-
     done = False
 
     # Check whether it is out or in or maintain
@@ -159,11 +158,6 @@ def dqn_scaling(scaler: AutoScaler):
     # scaling_flag = 0
     # Scaling in or out
     logging.info(f"Epsilon value : {epsilon_value}")
-    respond =  {
-      'start_time': 0,
-      'finish_time': 0,
-      'time_spent_sec': 0.00
-    }
 
     num_instances = service_info['instance_num']
     logging.info(f"current instance: {num_instances}")
