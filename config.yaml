@@ -3,3 +3,5 @@ instance:
   min_number: 1
 docker:
   base_url: http://localhost:5000
+logging:
+  filename: ./agent.log

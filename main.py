@@ -1,5 +1,6 @@
 import logging
 import os
+import pandas as pd
 from torch_dqn import *
 from agent import *
 from scaling_model import *
@@ -28,7 +29,21 @@ sfc_update_flag = True
 OKGREEN = '\033[92m'
 WARNING = '\033[93m'
 ENDC = '\033[0m'
-logging.basicConfig(level=logging.INFO, format=f"{OKGREEN}%(levelname)s{ENDC} %(message)s")
+logging.basicConfig(filename=config['logging']['filename'],
+                    filemode='a',
+                    level=logging.INFO, 
+                    datefmt='%H:%M:%S',
+                    format=f"%(asctime)s.%(msecs)d %(levelname)s %(message)s")
+# define a Handler which writes INFO messages or higher to the sys.stderr
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+# set a format which is simpler for console use
+formatter = logging.Formatter(f"%(asctime)s {OKGREEN}%(levelname)s{ENDC} %(message)s")
+# tell the handler to use this format
+console.setFormatter(formatter)
+logging.Formatter(f"%(asctime)s.%(msecs)d %(levelname)s %(message)s")
+# add the handler to the root logger
+logging.getLogger().addHandler(console)
 
 def get_containers_info() -> list:
     URL = f"{config['docker']['base_url']}/containers"
@@ -51,6 +66,8 @@ def get_app_stat() -> dict:
     return request.json()
 
 def calculate_service_info(containers_info):
+  if (containers_info) == 0:
+    raise ValueError("no containers")
   cpu_percent = 0
   mem_percent = 0
   for container in containers_info:
@@ -88,12 +105,30 @@ def scale_pod(scale: ScalingPod):
   except Exception as e:
     raise e
 
-
+def append_stat(stat :pd.DataFrame, pre_s_CPU: float, pre_s_MEM: float, pre_s_pods: int, sampled_action: str, sampled_action_by: str, epsilon: float, 
+                post_s_CPU: float, post_s_MEM: float, post_s_pods: int, post_s_latency: float, post_s_drop_packets: float, reward: float) -> pd.DataFrame: 
+  
+  stat.loc[len(stat)] = [dt.datetime.now(), round(pre_s_CPU, 6), round(pre_s_MEM, 6), round(pre_s_pods, 6), sampled_action, sampled_action_by, epsilon, round(post_s_CPU, 6), round(post_s_MEM, 6), post_s_pods, post_s_latency, round(post_s_drop_packets, 6), round(reward, 6)]
+  return stat
+  
 # dqn-threshold(scaler): doing auto-scaling based on dqn
 # Input: scaler
 # Output: none
 def dqn_scaling(scaler: AutoScaler):
-
+  stat = pd.DataFrame({"timestamp": pd.Series(dtype='datetime64[ns]'),
+                        "s_CPU (%)": pd.Series(dtype='float'),
+                        "s_MEM (%)": pd.Series(dtype='float'),
+                        "s_pods": pd.Series(dtype='int'),
+                        "decision_action": pd.Series(dtype='str'),
+                        "decision_action_by": pd.Series(dtype='str'),
+                        "epsilon": pd.Series(dtype='float'),
+                        "s'_CPU (%)": pd.Series(dtype='float'),
+                        "s'_MEM (%)": pd.Series(dtype='float'),
+                        "s'_pods": pd.Series(dtype='int'),
+                        "s'_latency (ms)": pd.Series(dtype='float'),
+                        "s'_drop_packets (%)": pd.Series(dtype='float'),
+                        "reward": pd.Series(dtype='float')})
+    
   # Initial Processing
   start_time = dt.datetime.now() #+ dt.timedelta(hours = 24)
   epsilon_value = epsilon
@@ -134,8 +169,12 @@ def dqn_scaling(scaler: AutoScaler):
   while scaler.get_active_flag():
     logging.info(f"{WARNING} ---------- Episode {n_epi} ---------- {ENDC}")
     # Get state and select action
-    containers_info = get_containers_info()
-    service_info = calculate_service_info(containers_info)
+    try:
+      containers_info = get_containers_info()
+      service_info = calculate_service_info(containers_info)
+    except Exception as e:
+      logging.warning(str(e))
+      continue
     state = get_pre_processing_state(service_info)
     logging.info(f"state (s): {state}")
     decision = q.sample_action(torch.from_numpy(state).float(), epsilon_value)
@@ -208,6 +247,9 @@ def dqn_scaling(scaler: AutoScaler):
       logging.info("[%s] Target network updated!" % (scaler.get_scaling_name()))
       q_target.load_state_dict(q.state_dict())
 
+    stat = append_stat(stat=stat, pre_s_CPU=state[0], pre_s_MEM=state[1], pre_s_pods=service_info['instance_num'], sampled_action=scaling_flag, sampled_action_by=decision["by"], epsilon=epsilon_value,  
+                post_s_CPU=s_prime[0], post_s_MEM=s_prime[1], post_s_pods=post_service_info['instance_num'], post_s_latency=app_stat['requests_stat']['avg_latency'], post_s_drop_packets=app_stat['requests_stat']['drop_packet_percentage'], reward=r)
+
     current_time = dt.datetime.now()
 
     if scaler.get_duration() > 0 and (current_time-start_time).seconds > scaler.get_duration():
@@ -225,7 +267,9 @@ def dqn_scaling(scaler: AutoScaler):
     if n_epi % scaler.get_save_model_interval()==0 and n_epi != 0:
       q.save_model("./save_model/"+scaler.get_scaling_name())
       logging.info("[%s] model saved" % (scaler.get_scaling_name()))
-    
+      stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
+      logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
+      stat = stat[0:0]
     time.sleep(scaler.get_interval())
 
   # Delete AutoScaler object
@@ -238,8 +282,9 @@ def dqn_scaling(scaler: AutoScaler):
 
   q.save_model("./save_model/"+scaler.get_scaling_name())
   logging.info("[%s] model saved" % (scaler.get_scaling_name()))
-
-
+  stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
+  logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
+  stat = stat[0:0]
 if __name__ == '__main__':
   dqn_scaling(
     AutoScaler(
@@ -249,7 +294,7 @@ if __name__ == '__main__':
         slo=None,
         duration=0,
         interval=0,
-        save_model_interval=20
+        save_model_interval=10
     ), 
     type='dqn')
   )
