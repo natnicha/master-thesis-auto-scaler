@@ -45,7 +45,7 @@ logging.Formatter(f"%(asctime)s.%(msecs)d %(levelname)s %(message)s")
 # add the handler to the root logger
 logging.getLogger().addHandler(console)
 
-def get_containers_info() -> list:
+def get_containers_info() -> dict:
     URL = f"{config['docker']['base_url']}/containers"
     try:
       request = requests.get(URL)
@@ -53,7 +53,7 @@ def get_containers_info() -> list:
         raise ValueError(f"connection error on {URL}")
     except Exception as e:
       raise e
-    return request.json()['containers']
+    return request.json()
 
 def get_app_stat() -> dict:
     URL = f"{config['docker']['base_url']}/app/stat"
@@ -66,17 +66,17 @@ def get_app_stat() -> dict:
     return request.json()
 
 def calculate_service_info(containers_info):
-  if (containers_info) == 0:
+  containers = containers_info['container']
+  online_pods = containers_info['system']['online_pods']
+  if (online_pods) == 0:
     raise ValueError("no containers")
-  cpu_percent = 0
   mem_percent = 0
-  for container in containers_info:
-    cpu_percent += float(container['cpu_percent'])
+  for container in containers:
     mem_percent += float(container['mem_percent'])
   return {
-    'instance_num': len(containers_info),
-    'cpu_percent': cpu_percent/len(containers_info),
-    'mem_percent': mem_percent/len(containers_info),
+    'instance_num': containers_info['system']['online_pods'],
+    'cpu_percent': containers_info['system']['usage_percentage'],
+    'mem_percent': mem_percent/online_pods,
   }
 
 def get_pre_processing_state(docker_info):
@@ -106,9 +106,9 @@ def scale_pod(scale: ScalingPod):
     raise e
 
 def append_stat(stat :pd.DataFrame, pre_s_CPU: float, pre_s_MEM: float, pre_s_pods: int, sampled_action: str, sampled_action_by: str, epsilon: float, 
-                post_s_CPU: float, post_s_MEM: float, post_s_pods: int, post_s_latency: float, post_s_drop_packets: float, reward: float) -> pd.DataFrame: 
+                post_s_CPU: float, post_s_MEM: float, post_s_pods: int, post_s_latency: float, post_s_drop_packets: float, is_done: bool,reward: float) -> pd.DataFrame: 
   
-  stat.loc[len(stat)] = [dt.datetime.now(), round(pre_s_CPU, 6), round(pre_s_MEM, 6), round(pre_s_pods, 6), sampled_action, sampled_action_by, epsilon, round(post_s_CPU, 6), round(post_s_MEM, 6), post_s_pods, post_s_latency, round(post_s_drop_packets, 6), round(reward, 6)]
+  stat.loc[len(stat)] = [dt.datetime.now(), round(pre_s_CPU, 6), round(pre_s_MEM, 6), round(pre_s_pods, 6), sampled_action, sampled_action_by, epsilon, round(post_s_CPU, 6), round(post_s_MEM, 6), post_s_pods, post_s_latency, round(post_s_drop_packets, 6), is_done, round(reward, 6)]
   return stat
   
 # dqn-threshold(scaler): doing auto-scaling based on dqn
@@ -127,6 +127,7 @@ def dqn_scaling(scaler: AutoScaler):
                         "s'_pods": pd.Series(dtype='int'),
                         "s'_latency (ms)": pd.Series(dtype='float'),
                         "s'_drop_packets (%)": pd.Series(dtype='float'),
+                        "is_done": pd.Series(dtype='str'),
                         "reward": pd.Series(dtype='float')})
     
   # Initial Processing
@@ -230,8 +231,14 @@ def dqn_scaling(scaler: AutoScaler):
 
     # Prepare calculating rewards
     # Find s' (post state)
-    app_stat = get_app_stat()
-    post_service_info = calculate_service_info(app_stat['containers'])
+    app_stat = None
+    while app_stat == None:
+      try:
+        app_stat = get_app_stat()
+        post_service_info = calculate_service_info(app_stat['containers'])
+      except Exception as e:
+        logging.warning(str(e))
+        done = False
     s_prime = get_pre_processing_state(post_service_info)
     logging.info(f"post state(s'): {s_prime}")
     r = reward_calculator(app_stat)
@@ -248,7 +255,7 @@ def dqn_scaling(scaler: AutoScaler):
       q_target.load_state_dict(q.state_dict())
 
     stat = append_stat(stat=stat, pre_s_CPU=state[0], pre_s_MEM=state[1], pre_s_pods=service_info['instance_num'], sampled_action=scaling_flag, sampled_action_by=decision["by"], epsilon=epsilon_value,  
-                post_s_CPU=s_prime[0], post_s_MEM=s_prime[1], post_s_pods=post_service_info['instance_num'], post_s_latency=app_stat['requests_stat']['avg_latency'], post_s_drop_packets=app_stat['requests_stat']['drop_packet_percentage'], reward=r)
+                post_s_CPU=s_prime[0], post_s_MEM=s_prime[1], post_s_pods=post_service_info['instance_num'], post_s_latency=app_stat['requests_stat']['avg_latency'], post_s_drop_packets=app_stat['requests_stat']['drop_packet_percentage'], is_done=done, reward=r)
 
     current_time = dt.datetime.now()
 
@@ -284,7 +291,7 @@ def dqn_scaling(scaler: AutoScaler):
   logging.info("[%s] model saved" % (scaler.get_scaling_name()))
   stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
   logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
-  stat = stat[0:0]
+
 if __name__ == '__main__':
   dqn_scaling(
     AutoScaler(
@@ -293,7 +300,7 @@ if __name__ == '__main__':
         scaling_name='DQN',
         slo=None,
         duration=0,
-        interval=0,
+        interval=2,
         save_model_interval=10
     ), 
     type='dqn')
