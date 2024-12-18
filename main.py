@@ -21,7 +21,7 @@ num_neurons   = 128             # Number of neurons in each hidden layer
 epsilon       = 0.10            # epsilon value of e-greedy algorithm
 required_mem_size = 20          # Minimum number triggering sampling
 copy_param_interval = 20        # Number of iteration to copy parameters to target Q-network
-max_apisode   = 1000              # Number of episode
+max_apisode   = 10000              # Number of episode
 
 scaler_list = []
 sfc_update_flag = True
@@ -46,9 +46,9 @@ logging.Formatter(f"%(asctime)s.%(msecs)d %(levelname)s %(message)s")
 logging.getLogger().addHandler(console)
 
 def get_containers_info() -> dict:
-    URL = f"{config['docker']['base_url']}/containers"
+    URL = f"{config['docker']['base_url']}/containers/confirm"
     try:
-      request = requests.get(URL)
+      request = requests.post(URL)
       if request.status_code != 200:
         raise ValueError(f"connection error on {URL}")
     except Exception as e:
@@ -70,13 +70,10 @@ def calculate_service_info(containers_info):
   online_pods = containers_info['system']['online_pods']
   if (online_pods) == 0:
     raise ValueError("no containers")
-  mem_percent = 0
-  for container in containers:
-    mem_percent += float(container['mem_percent'])
   return {
-    'instance_num': containers_info['system']['online_pods'],
-    'cpu_percent': containers_info['system']['usage_percentage'],
-    'mem_percent': mem_percent/online_pods,
+    'instance_num': int(containers_info['system']['online_pods']),
+    'cpu_percent': float(containers_info['system']['cpu_percent']),
+    'mem_percent': float(containers_info['system']['mem_percent']),
   }
 
 def get_pre_processing_state(docker_info):
@@ -90,20 +87,22 @@ class ScalingPod():
   Out = 'out'
 
 def scale_pod(scale: ScalingPod):
-  try:
-    request = requests.post(
-      url=f"{config['docker']['base_url']}/scale/{scale}",
-      json='',
-    )
-    logging.info(f"scaling pod got: status code {request.status_code}")
-    if request.status_code == 200:
-      return request.json()
-    else:
-      logging.error(f"scaling pod got: status code {request.status_code}")
-      logging.error(f"scaling pod got: {request.json()}")
-      raise request.json()
-  except Exception as e:
-    raise e
+  is_success = False
+  while(not is_success):
+    try:
+      request = requests.post(
+        url=f"{config['docker']['base_url']}/pod/scale/{scale}",
+        json='',
+      )
+      logging.info(f"scaling pod got: status code {request.status_code}")
+      if request.status_code == 200:
+        is_success = True
+        return request.json()
+      else:
+        logging.error(f"scaling pod got: status code {request.status_code}")
+        logging.error(f"scaling pod got: {request.json()}")
+    except Exception as e:
+      logging.error(f"scaling pod got: {e}")
 
 def append_stat(stat :pd.DataFrame, pre_s_CPU: float, pre_s_MEM: float, pre_s_pods: int, sampled_action: str, sampled_action_by: str, epsilon: float, 
                 post_s_CPU: float, post_s_MEM: float, post_s_pods: int, post_s_latency: float, post_s_drop_packets: float, is_done: bool,reward: float) -> pd.DataFrame: 
@@ -206,7 +205,8 @@ def dqn_scaling(scaler: AutoScaler):
       (num_instances+scaling_flag < config["instance"]["min_number"] or \
       num_instances+scaling_flag > config["instance"]["max_number"]):
       logging.info(f"continue due to a number of instance is out of bound")
-      continue
+      logging.info(f"Force to Maintain!")
+      scaling_flag = 0
 
     if scaling_flag != 0 and \
       num_instances+scaling_flag >= config["instance"]["min_number"] and \
@@ -300,7 +300,7 @@ if __name__ == '__main__':
         scaling_name='DQN',
         slo=None,
         duration=0,
-        interval=2,
+        interval=10,
         save_model_interval=10
     ), 
     type='dqn')
