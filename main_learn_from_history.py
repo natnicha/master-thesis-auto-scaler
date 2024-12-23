@@ -107,9 +107,9 @@ def calculate_service_info(containers_info):
 
 def get_pre_processing_state(docker_info):
     state = []
-    state.append(docker_info["instance_num"])
     state.append(docker_info["cpu_percent"])
     state.append(docker_info["mem_percent"])
+    state.append(docker_info["instance_num"])
     return np.array(state)
 
 class ScalingPod():
@@ -331,7 +331,7 @@ def dqn_scaling(scaler: AutoScaler):
 
   q.save_model("./save_model/"+scaler.get_scaling_name())
   logging.info("[%s] model saved" % (scaler.get_scaling_name()))
-  stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
+  stat.to_csv("learning_stat_output.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
   logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
 
 
@@ -341,7 +341,7 @@ def load_data_from_file(filename: str):
   max_apisode = len(history_data)-1
 
 if __name__ == '__main__':
-  load_data_from_file("learning_stat.csv")
+  load_data_from_file("learning_stat_mark.csv")
   dqn_scaling(
     AutoScaler(
     scaling_info=DQN_ScalingInfo(
