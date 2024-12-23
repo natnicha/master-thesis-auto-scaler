@@ -80,6 +80,7 @@ def get_pre_processing_state(docker_info):
     state = []
     state.append(docker_info["cpu_percent"])
     state.append(docker_info["mem_percent"])
+    state.append(docker_info["instance_num"])
     return np.array(state)
 
 class ScalingPod():
@@ -134,7 +135,7 @@ def dqn_scaling(scaler: AutoScaler):
   epsilon_value = epsilon
 
   # Q-networks
-  num_states = 2 # Number of states
+  num_states = 3 # Number of states
   num_actions = 3 # Scale-out, Maintain, Scale-In
 
   q = Qnet(num_states, num_actions, num_neurons)
