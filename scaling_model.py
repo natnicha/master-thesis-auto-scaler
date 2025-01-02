@@ -85,7 +85,7 @@ class Threshold_ScalingInfo(Model):
 
 class DQN_ScalingInfo(Model):
 
-    def __init__(self, sfc_name: str=None, scaling_name: str=None, slo: float=None, interval: float=None, save_model_interval: int=None, duration: float=None, has_dataset: bool=None):
+    def __init__(self, sfc_name: str=None, scaling_name: str=None, slo: float=None, interval: float=None, save_model_interval: int=None, duration: float=None, start_with_specific_pods_no=None, is_learn: bool=None, has_dataset: bool=None):
 
         self.swagger_types = {
             'sfc_name': str,
@@ -111,6 +111,8 @@ class DQN_ScalingInfo(Model):
         self._interval = interval
         self._save_model_interval = save_model_interval
         self._duration = duration
+        self._start_with_specific_pods_no = start_with_specific_pods_no
+        self._is_learn = is_learn # for evaluation, agent don't learn from result
         self._has_dataset = has_dataset
 
     @classmethod
@@ -166,6 +168,22 @@ class DQN_ScalingInfo(Model):
         self._duration = duration
 
     @property
+    def start_with_specific_pods_no(self) -> int:
+        return self._start_with_specific_pods_no
+
+    @start_with_specific_pods_no.setter
+    def start_with_specific_pods_no(self, start_with_specific_pods_no: int):
+        self._start_with_specific_pods_no = start_with_specific_pods_no
+
+    @property
+    def is_learn(self) -> bool:
+        return self._is_learn
+
+    @is_learn.setter
+    def is_learn(self, is_learn: bool):
+        self._is_learn = is_learn
+
+    @property
     def has_dataset(self) -> bool:
         return self._has_dataset
 
@@ -183,6 +201,8 @@ class AutoScaler():
         self.type = type
         self.interval = scaling_info.interval
         self.duration = scaling_info.duration
+        self.start_with_specific_pods_no = scaling_info.start_with_specific_pods_no
+        self.is_learn = scaling_info.is_learn
         self.monitor_sfcr_id = ""
         self.monitor_src_id = ""
         self.monitor_dst_id =  ""
@@ -269,6 +289,18 @@ class AutoScaler():
 
     def set_duration(self, duration):
         self.duration = duration
+    
+    def get_start_with_specific_pods_no(self):
+        return self.start_with_specific_pods_no
+
+    def set_start_with_specific_pods_no(self, start_with_specific_pods_no):
+        self.start_with_specific_pods_no = start_with_specific_pods_no
+    
+    def get_is_learn(self):
+        return self.is_learn
+
+    def set_is_learn(self, is_learn):
+        self.is_learn = is_learn
 
     def get_threshold_in(self):
         return self.threshold_in

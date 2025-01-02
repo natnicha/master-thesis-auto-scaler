@@ -180,10 +180,13 @@ def dqn_scaling(scaler: AutoScaler):
   scaler.set_active_flag(True)
   
   # Epsilon_value setting
-  epsilon_value = 0.5
-  if scaler.has_dataset == True:
-    epsilon_value = 0.11
-    logging.info("has dataset")
+  if scaler.is_learn:
+    epsilon_value = 0.5
+    if scaler.has_dataset == True:
+      epsilon_value = 0.11
+      logging.info("has dataset")
+  else:
+    epsilon_value = 0.95
 
   while scaler.get_active_flag():
     logging.info(f"{WARNING} ---------- Episode {n_epi} ---------- {ENDC}")
@@ -245,42 +248,51 @@ def dqn_scaling(scaler: AutoScaler):
       scaling_flag = 0
       done = True
 
-    # Prepare calculating rewards
-    # Find s' (post state)
-    app_stat = None
-    while app_stat == None:
-      try:
-        app_stat = get_app_stat()
-        post_service_info = calculate_service_info(app_stat['containers'])
-      except Exception as e:
-        logging.warning(str(e))
-        done = False
-    s_prime = get_pre_processing_state(post_service_info)
-    logging.info(f"post state(s'): {s_prime}")
-    r = reward_calculator(app_stat)
+    if scaler.is_learn:
+      # Prepare calculating rewards
+      # Find s' (post state)
+      app_stat = None
+      while app_stat == None:
+        try:
+          app_stat = get_app_stat()
+          post_service_info = calculate_service_info(app_stat['containers'])
+        except Exception as e:
+          logging.warning(str(e))
+          done = False
+      s_prime = get_pre_processing_state(post_service_info)
+      logging.info(f"post state(s'): {s_prime}")
+      r = reward_calculator(app_stat)
 
-    done_mask = 1.0 if done else 0.0
-    transition = (state,a,r,s_prime,done_mask)
-    memory.put(transition)
+      done_mask = 1.0 if done else 0.0
+      transition = (state,a,r,s_prime,done_mask)
+      memory.put(transition)
 
-    set_pod_res = None
-    while set_pod_res == None:
-      try:
-        set_pod_res = set_pod(4)
-        logging.info(f"Set pod (4) succeeded with:{set_pod_res['time_spent_sec']}")
-      except Exception as e:
-        logging.warning(str(e))
-        done = False
+      if scaler.start_with_specific_pods_no > 0:
+        set_pod_res = None
+        while set_pod_res == None:
+          try:
+            set_pod_res = set_pod(scaler.start_with_specific_pods_no)
+            logging.info(f"Set pod ({scaler.start_with_specific_pods_no}) succeeded with:{set_pod_res['time_spent_sec']}")
+          except Exception as e:
+            logging.warning(str(e))
+            done = False
 
-    if memory.size() > required_mem_size:
-      train(q, q_target, memory, optimizer, gamma, batch_size)
+      if memory.size() > required_mem_size:
+        train(q, q_target, memory, optimizer, gamma, batch_size)
 
-    if n_epi % copy_param_interval==0 and n_epi != 0:
-      logging.info("[%s] Target network updated!" % (scaler.get_scaling_name()))
-      q_target.load_state_dict(q.state_dict())
+      if n_epi % copy_param_interval==0 and n_epi != 0:
+        logging.info("[%s] Target network updated!" % (scaler.get_scaling_name()))
+        q_target.load_state_dict(q.state_dict())
 
-    stat = append_stat(stat=stat, pre_s_CPU=state[0], pre_s_MEM=state[1], pre_s_pods=service_info['instance_num'], sampled_action=scaling_flag, sampled_action_by=decision["by"], epsilon=epsilon_value,  
-                post_s_CPU=s_prime[0], post_s_MEM=s_prime[1], post_s_pods=post_service_info['instance_num'], post_s_latency=app_stat['requests_stat']['avg_latency'], post_s_drop_packets=app_stat['requests_stat']['drop_packet_percentage'], is_done=done, reward=r)
+      stat = append_stat(stat=stat, pre_s_CPU=state[0], pre_s_MEM=state[1], pre_s_pods=service_info['instance_num'], sampled_action=scaling_flag, sampled_action_by=decision["by"], epsilon=epsilon_value,  
+                  post_s_CPU=s_prime[0], post_s_MEM=s_prime[1], post_s_pods=post_service_info['instance_num'], post_s_latency=app_stat['requests_stat']['avg_latency'], post_s_drop_packets=app_stat['requests_stat']['drop_packet_percentage'], is_done=done, reward=r)
+
+      if n_epi % scaler.get_save_model_interval()==0 and n_epi != 0:
+        q.save_model("./save_model/"+scaler.get_scaling_name())
+        logging.info("[%s] model saved" % (scaler.get_scaling_name()))
+        stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
+        logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
+        stat = stat[0:0]
 
     current_time = dt.datetime.now()
 
@@ -296,12 +308,6 @@ def dqn_scaling(scaler: AutoScaler):
     elif scaler.has_dataset == False:
       scaler.set_active_flag(False)
     
-    if n_epi % scaler.get_save_model_interval()==0 and n_epi != 0:
-      q.save_model("./save_model/"+scaler.get_scaling_name())
-      logging.info("[%s] model saved" % (scaler.get_scaling_name()))
-      stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
-      logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
-      stat = stat[0:0]
     time.sleep(scaler.get_interval())
 
   # Delete AutoScaler object
@@ -312,10 +318,11 @@ def dqn_scaling(scaler: AutoScaler):
   else:
     logging.info(f"[Exit: {scaler.get_scaling_name()}] DQN Scaling")
 
-  q.save_model("./save_model/"+scaler.get_scaling_name())
-  logging.info("[%s] model saved" % (scaler.get_scaling_name()))
-  stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
-  logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
+  if scaler.is_learn:
+    q.save_model("./save_model/"+scaler.get_scaling_name())
+    logging.info("[%s] model saved" % (scaler.get_scaling_name()))
+    stat.to_csv("learning_stat.csv", mode='a', sep=',', encoding='utf-8', header=False, index=False)
+    logging.info("[%s] stat saved" % (scaler.get_scaling_name()))
 
 if __name__ == '__main__':
   dqn_scaling(
@@ -326,6 +333,8 @@ if __name__ == '__main__':
         slo=None,
         duration=0,
         interval=10,
+        start_with_specific_pods_no=0,
+        is_learn=False,
         save_model_interval=10
     ), 
     type='dqn')
