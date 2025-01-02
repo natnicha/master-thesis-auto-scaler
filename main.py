@@ -105,6 +105,24 @@ def scale_pod(scale: ScalingPod):
     except Exception as e:
       logging.error(f"scaling pod got: {e}")
 
+def set_pod(pod_num: int):
+  is_success = False
+  while(not is_success):
+    try:
+      request = requests.post(
+        url=f"{config['docker']['base_url']}/pod/set-pod-count/{pod_num}",
+        json='',
+      )
+      logging.info(f"set pod got: status code {request.status_code}")
+      if request.status_code == 200:
+        is_success = True
+        return request.json()
+      else:
+        logging.error(f"set pod got: status code {request.status_code}")
+        logging.error(f"set pod got: {request.json()}")
+    except Exception as e:
+      logging.error(f"set pod got: {e}")
+
 def append_stat(stat :pd.DataFrame, pre_s_CPU: float, pre_s_MEM: float, pre_s_pods: int, sampled_action: str, sampled_action_by: str, epsilon: float, 
                 post_s_CPU: float, post_s_MEM: float, post_s_pods: int, post_s_latency: float, post_s_drop_packets: float, is_done: bool,reward: float) -> pd.DataFrame: 
   
@@ -194,9 +212,6 @@ def dqn_scaling(scaler: AutoScaler):
         scaling_flag = 0
 
 
-    # For testing
-    # scaling_flag = 0
-    # Scaling in or out
     logging.info(f"Epsilon value : {epsilon_value}")
 
     num_instances = service_info['instance_num']
@@ -247,6 +262,15 @@ def dqn_scaling(scaler: AutoScaler):
     done_mask = 1.0 if done else 0.0
     transition = (state,a,r,s_prime,done_mask)
     memory.put(transition)
+
+    set_pod_res = None
+    while set_pod_res == None:
+      try:
+        set_pod_res = set_pod(4)
+        logging.info(f"Set pod (4) succeeded with:{set_pod_res['time_spent_sec']}")
+      except Exception as e:
+        logging.warning(str(e))
+        done = False
 
     if memory.size() > required_mem_size:
       train(q, q_target, memory, optimizer, gamma, batch_size)
