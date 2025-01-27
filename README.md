@@ -14,6 +14,11 @@ This project consists of the following three components, distributed across diff
 - [**Docker-Manipulation-API**](https://github.com/natnicha/master-thesis-docker-manipulation-API): The service facilitates an RL agent by enabling seamless communication between the RL agent and the service running on Kubernetes as part of our research.
 - [**Image-Classification**](https://github.com/natnicha/master-thesis-image-classification): The target application in our study, image classification, serves image classification application based on user-submitted photos.
 
+## RL Execution
+An agent in reinforcement learning, supported by auxiliary services, is actively learning from the environment in its setup.
+
+![AHPA Visual](./visual.gif "AHPA")
+
 ## Built With
 
 [<img src="https://www.python.org/static/img/python-logo.png" height="50">](https://www.python.org/) [<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/PyTorch_logo_black.svg/2560px-PyTorch_logo_black.svg.png" height="50">](https://pytorch.org/) 
