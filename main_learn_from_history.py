@@ -1,6 +1,7 @@
 import logging
 import os
 import pandas as pd
+import datetime as dt
 from torch_dqn import *
 from agent import *
 from scaling_model import *
@@ -21,10 +22,8 @@ required_mem_size = 20          # Minimum number triggering sampling
 buffer_limit  = 2500            # Maximum Buffer size
 batch_size    = 16              # Batch size for mini-batch sampling
 max_apisode   = 7000            # Number of episode
-history_data = []
 
-scaler_list = []
-sfc_update_flag = True
+history_data = []
 
 OKGREEN = '\033[92m'
 WARNING = '\033[93m'
@@ -290,11 +289,7 @@ def dqn_scaling(scaler: AutoScaler):
       stat = stat[0:0]
     time.sleep(scaler.get_interval())
 
-  if scaler in scaler_list:
-    scaler_list.remove(scaler)
-    logging.info(f"[Expire: {scaler.get_scaling_name()}] DQN Scaling")
-  else:
-    logging.info(f"[Exit: {scaler.get_scaling_name()}] DQN Scaling")
+  logging.info(f"[Exit: {scaler.get_scaling_name()}] DQN Scaling")
 
   q.save_model("./save_model/"+scaler.get_scaling_name())
   logging.info("[%s] model saved" % (scaler.get_scaling_name()))
@@ -311,13 +306,11 @@ if __name__ == '__main__':
   load_data_from_file("learning_stat_mark.csv")
   dqn_scaling(
     AutoScaler(
-    scaling_info=DQN_ScalingInfo(
-        sfc_name='docker',
         scaling_name='DQN',
-        slo=None,
         duration=0,
         interval=0,
+        start_with_specific_pods_no=0,
+        is_learn=True,
         save_model_interval=10
-    ), 
-    type='dqn')
+    )
   )

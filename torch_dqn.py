@@ -2,9 +2,6 @@ import collections
 import random
 import numpy as np
 import csv
-from pprint import pprint
-
-# Import PyTorch library
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -80,15 +77,15 @@ class ReplayBuffer():
 class Qnet(nn.Module):
     def __init__(self, num_inputs, num_outputs, num_neurons):
         super(Qnet, self).__init__()
-        self.num_inputs = num_inputs #3*num_tiers
-        self.num_outputs = num_outputs #3#2*num_nodes+1
+        self.num_inputs = num_inputs
+        self.num_outputs = num_outputs
         self.num_neurons = num_neurons
 
-        self.fc1 = nn.Linear(self.num_inputs, self.num_neurons) # hidden layer 1
-        self.fc2 = nn.Linear(self.num_neurons, self.num_neurons) # hidden layer 2
-        self.fc3 = nn.Linear(self.num_neurons, self.num_neurons)  # hidden layer 3
-        self.fc4 = nn.Linear(self.num_neurons, self.num_neurons)  # hidden layer 4
-        self.fc5 = nn.Linear(self.num_neurons, self.num_outputs) # add 0~3 maintain 4 remove 5~8 maintain 2
+        self.fc1 = nn.Linear(self.num_inputs, self.num_neurons) # input - hidden layer 1
+        self.fc2 = nn.Linear(self.num_neurons, self.num_neurons) # hidden layer 1 - hidden layer 2
+        self.fc3 = nn.Linear(self.num_neurons, self.num_neurons) # hidden layer 2 - hidden layer 3
+        self.fc4 = nn.Linear(self.num_neurons, self.num_neurons) # hidden layer 3 - hidden layer 4
+        self.fc5 = nn.Linear(self.num_neurons, self.num_outputs) # output
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
@@ -105,7 +102,7 @@ class Qnet(nn.Module):
 
         # Regarding coin to select action randomly
         if coin < epsilon:
-            return { "action": random.randrange(0,self.num_outputs), "by" : "Policy" } # PARAMETER: RANDOM ACTION
+            return { "action": random.randrange(0,self.num_outputs), "by" : "Policy" }
         else :
             return { "action": out.argmax().item(), "by": "Random" }
 
