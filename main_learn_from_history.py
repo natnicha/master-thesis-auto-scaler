@@ -6,22 +6,21 @@ from agent import *
 from scaling_model import *
 from config import config 
 
-from datetime import datetime
 import time
 import torch.optim as optim
 import torch
 import requests
 
-# <Important> parameters for Reinforcement Learning
-learning_rate = 0.01            # Learning rate
-gamma         = 0.98            # Discount factor
+# DQN Parameters for Reinforcement Learning
+learning_rate = 0.01            # Learning rate (mu)
+gamma         = 0.98            # Discount factor (gamma)
+num_neurons   = 128             # Number of neurons in each hidden layer
+epsilon       = 0.10            # probability of exploration (epsilon value of e-greedy algorithm) 
+copy_param_interval = 20        # Number of iteration to copy parameters to target Q-network
+required_mem_size = 20          # Minimum number triggering sampling
 buffer_limit  = 2500            # Maximum Buffer size
 batch_size    = 16              # Batch size for mini-batch sampling
-num_neurons   = 128             # Number of neurons in each hidden layer
-epsilon       = 0.10            # epsilon value of e-greedy algorithm
-required_mem_size = 20          # Minimum number triggering sampling
-copy_param_interval = 20        # Number of iteration to copy parameters to target Q-network
-max_apisode   = 10000              # Number of episode
+max_apisode   = 7000            # Number of episode
 history_data = []
 
 scaler_list = []
@@ -46,7 +45,7 @@ logging.Formatter(f"%(asctime)s.%(msecs)d %(levelname)s %(message)s")
 # add the handler to the root logger
 logging.getLogger().addHandler(console)
 
-def get_containers_info(episode: int) -> dict:
+def get_pod_info(episode: int) -> dict:
   global history_data
   current_data = history_data.loc[[episode]]
   return {
@@ -57,14 +56,6 @@ def get_containers_info(episode: int) -> dict:
       "online_pods": current_data["s_pods"][episode].item()
     }
   }
-    # URL = f"{config['docker']['base_url']}/containers/confirm"
-    # try:
-    #   request = requests.post(URL)
-    #   if request.status_code != 200:
-    #     raise ValueError(f"connection error on {URL}")
-    # except Exception as e:
-    #   raise e
-    # return request.json()
 
 def get_app_stat(episode: int) -> dict:
   global history_data
@@ -85,14 +76,6 @@ def get_app_stat(episode: int) -> dict:
       "total_packet_count": 0
     }
   }
-    # URL = f"{config['docker']['base_url']}/app/stat"
-    # try:
-    #   request = requests.get(URL)
-    #   if request.status_code != 200:
-    #     raise ValueError(f"connection error on {URL}")
-    # except Exception as e:
-    #   raise e
-    # return request.json()
 
 def calculate_service_info(containers_info):
   containers = containers_info['container']
@@ -140,9 +123,6 @@ def append_stat(stat :pd.DataFrame, pre_s_CPU: float, pre_s_MEM: float, pre_s_po
   stat.loc[len(stat)] = [dt.datetime.now(), round(pre_s_CPU, 6), round(pre_s_MEM, 6), round(pre_s_pods, 6), sampled_action, sampled_action_by, epsilon, round(post_s_CPU, 6), round(post_s_MEM, 6), post_s_pods, post_s_latency, round(post_s_drop_packets, 6), is_done, round(reward, 6)]
   return stat
   
-# dqn-threshold(scaler): doing auto-scaling based on dqn
-# Input: scaler
-# Output: none
 def dqn_scaling(scaler: AutoScaler):
   global history_data
   stat = pd.DataFrame({"timestamp": pd.Series(dtype='datetime64[ns]'),
@@ -161,17 +141,17 @@ def dqn_scaling(scaler: AutoScaler):
                         "reward": pd.Series(dtype='float')})
     
   # Initial Processing
-  start_time = dt.datetime.now() #+ dt.timedelta(hours = 24)
+  start_time = dt.datetime.now()
   epsilon_value = epsilon
 
   # Q-networks
-  num_states = 3 # Number of states
-  num_actions = 3 # Scale-out, Maintain, Scale-In
+  num_states = 3 # avg CPU %, avg memory %, number of Pod
+  num_actions = 3 # Scaling-out, Maintain, Scaling-In
 
   q = Qnet(num_states, num_actions, num_neurons)
   q_target = Qnet(num_states, num_actions, num_neurons)
   q_target.load_state_dict(q.state_dict())
-  
+  optimizer = optim.Adam(q.parameters(), lr=learning_rate)
   
   is_file = os.path.isfile("./save_model/"+scaler.get_scaling_name())
   # if scaler.has_dataset == True:
@@ -182,16 +162,11 @@ def dqn_scaling(scaler: AutoScaler):
   else:
     logging.info("learning from live data")
 
-  optimizer = optim.Adam(q.parameters(), lr=learning_rate)
   n_epi = 0
 
-  # If there is dataset, read it
   memory = ReplayBuffer(buffer_limit)
-
-  # Start scaling
   scaler.set_active_flag(True)
   
-  # Epsilon_value setting
   epsilon_value = 0.5
   if scaler.has_dataset == True:
     epsilon_value = 0.11
@@ -201,10 +176,9 @@ def dqn_scaling(scaler: AutoScaler):
     logging.info(f"{WARNING} ---------- Episode {n_epi} ---------- {ENDC}")
     # Get state and select action
     try:
-      containers_info = get_containers_info(n_epi)
+      containers_info = get_pod_info(n_epi)
       service_info = calculate_service_info(containers_info)
     except Exception as e:
-      print("rrrrrrrrrrrrrrr")
       logging.warning(str(e))
       continue
     state = get_pre_processing_state(service_info)
@@ -218,7 +192,6 @@ def dqn_scaling(scaler: AutoScaler):
       a = 0
     elif decision["action"] == -1:
       a = 2
-    # a = decision["action"]
     done = False
 
     # Check whether it is out or in or maintain
@@ -233,11 +206,7 @@ def dqn_scaling(scaler: AutoScaler):
         scaling_flag = 0
 
 
-    # For testing
-    # scaling_flag = 0
-    # Scaling in or out
     logging.info(f"Epsilon value : {epsilon_value}")
-
     num_instances = service_info['instance_num']
     logging.info(f"current instance: {num_instances}")
 
@@ -321,9 +290,7 @@ def dqn_scaling(scaler: AutoScaler):
       stat = stat[0:0]
     time.sleep(scaler.get_interval())
 
-  # Delete AutoScaler object
   if scaler in scaler_list:
-    # delete_monitor(scaler)
     scaler_list.remove(scaler)
     logging.info(f"[Expire: {scaler.get_scaling_name()}] DQN Scaling")
   else:

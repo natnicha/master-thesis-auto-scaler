@@ -157,7 +157,7 @@ def dqn_scaling(scaler: AutoScaler):
   epsilon_value = epsilon
 
   # Q-networks
-  num_states = 3 # Number of states
+  num_states = 3 # avg CPU %, avg memory %, number of Pod
   num_actions = 3 # Scaling-out, Maintain, Scaling-In
 
   q = Qnet(num_states, num_actions, num_neurons)
@@ -214,7 +214,6 @@ def dqn_scaling(scaler: AutoScaler):
 
 
     logging.info(f"Epsilon value : {epsilon_value}")
-
     num_instances = service_info['instance_num']
     logging.info(f"current instance: {num_instances}")
 
