@@ -1,6 +1,6 @@
 # Welcome to RL-Based-Autoscaler
 
-The main repository for Reinforcement Learning (RL)-based Adaptive Horizontal Autoscaler (AHPA). This repository is [Python](https://www.python.org/)-based and leverages [PyTorch](https://pytorch.org/) to implement Deep Q-Networks (DQN). It includes an agent and its learning procedure, with an ADAM optimizer set as the default.
+The main repository for Reinforcement Learning (RL)-based Adaptive Horizontal Pod Autoscaler (AHPA). This repository is [Python](https://www.python.org/)-based and leverages [PyTorch](https://pytorch.org/) to implement Deep Q-Networks (DQN). It includes an agent and its learning procedure, with an ADAM optimizer set as the default.
 
 ## About Project
 
